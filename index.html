@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>인천공항 자재 스캐너</title>
+  
+  <!-- PWA 앱 설정 연결 -->
+  <link rel="manifest" href="./manifest.json">
+  <meta name="theme-color" content="#007bff">
+  <link rel="apple-touch-icon" href="icon-192.png">
+
+  <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+  <style>
+    body { font-family: 'Malgun Gothic', sans-serif; padding: 15px; max-width: 500px; margin: auto; background-color: #f4f5f7; }
+    h2, h3 { text-align: center; color: #333; }
+    
+    #menu-screen, #form-screen { display: none; }
+    #menu-screen.active, #form-screen.active { display: block; }
+    
+    /* 설치 배너 스타일 */
+    #install-banner { display: none; background-color: #007bff; color: white; padding: 15px; border-radius: 8px; margin-bottom: 20px; text-align: center; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+    #install-btn { background-color: white; color: #007bff; border: none; padding: 8px 16px; font-weight: bold; border-radius: 4px; margin-top: 10px; cursor: pointer; }
+    
+    /* 기존 스타일 유지 */
+    .terminal-select { width: 100%; padding: 15px; font-size: 18px; font-weight: bold; margin-bottom: 20px; border: 2px solid #007bff; border-radius: 8px; text-align: center; }
+    .menu-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .menu-btn { padding: 20px 10px; font-size: 16px; font-weight: bold; background-color: #fff; color: #333; border: 1px solid #ccc; border-radius: 8px; cursor: pointer; }
+    .input-group { margin-bottom: 12px; background: #fff; padding: 12px; border-radius: 8px; }
+    label { font-weight: bold; display: block; margin-bottom: 6px; font-size: 14px; color: #444; }
+    select, input, textarea { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 6px; box-sizing: border-box; font-size: 15px; }
+    .sn-input-wrapper { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
+    .sn-input-wrapper input { flex: 1; margin: 0; }
+    .scan-btn { padding: 10px; background-color: #007bff; color: white; border: none; border-radius: 6px; font-size: 13px; font-weight: bold; }
+    .stock-group { display: flex; gap: 8px; margin-bottom: 8px; }
+    .stock-group select { flex: 2; }
+    .stock-group input { flex: 1; }
+    .btn-group { display: flex; gap: 10px; margin-top: 15px; margin-bottom: 20px; }
+    .btn-group button { flex: 1; padding: 14px; font-size: 15px; font-weight: bold; border: none; border-radius: 6px; }
+    .back-btn { background-color: #6c757d; color: white; width: 100%; padding: 12px; margin-bottom: 15px; border: none; border-radius: 6px; font-weight: bold; }
+    .kakao { background-color: #FEE500; color: #000; }
+    .sheets { background-color: #0F9D58; color: white; }
+    #reader { width: 100%; background: #000; margin-bottom: 15px; border-radius: 8px; overflow: hidden; display: none; }
+    #stopBtn { background-color: #dc3545; color: white; width: 100%; padding: 12px; border: none; border-radius: 6px; font-weight: bold; margin-bottom: 15px; display: none; }
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+
+  <!-- ==================== 메인 메뉴 화면 ==================== -->
+  <div id="menu-screen" class="active">
+    <h2>자재 스캐너</h2>
+
+    <!-- 앱 설치 안내 배너 -->
+    <div id="install-banner">
+      📱 바탕화면에 앱을 설치해 보세요!
+      <button id="install-btn">앱 설치하기</button>
+    </div>
+
+    <select id="terminal" class="terminal-select">
+      <option value="T1">Terminal 1 (T1)</option>
+      <option value="T2">Terminal 2 (T2)</option>
+    </select>
+    <div class="menu-grid">
+      <button class="menu-btn" onclick="openForm('장비 교체')">🔄 장비 교체</button>
+      <button class="menu-btn" onclick="openForm('장비 수리완료')">✅ 장비 수리 완료</button>
+      <button class="menu-btn" onclick="openForm('장비 수리 입고')">📥 장비 수리 입고</button>
+      <button class="menu-btn" onclick="openForm('장비 수리 반출')">📤 장비 수리 반출</button>
+    </div>
+  </div>
+
+  <!-- ==================== 2. 입력 폼 화면 (생략 없이 V2와 동일) ==================== -->
+  <div id="form-screen">
+    <button class="back-btn" onclick="goBack()">🔙 메뉴로 돌아가기</button>
+    <h3 id="form-title">작업명</h3>
+    
+    <div id="reader"></div>
+    <button id="stopBtn" onclick="stopScanner()">스캔 취소</button>
+
+    <div id="wrap-location" class="input-group hidden">
+      <label>대상 (위치)</label>
+      <input type="text" id="location" placeholder="예: CK E07, 인증센터 등" oninput="updatePreview()">
+    </div>
+
+    <div class="input-group">
+      <label id="sn-label">S/N (시리얼 번호)</label>
+      <div id="wrap-sn-single" class="sn-input-wrapper">
+        <input type="text" id="sn-single" placeholder="바코드 스캔 또는 입력" oninput="checkEquipment()">
+        <button class="scan-btn" onclick="startScanner('sn-single')">📷 스캔</button>
+      </div>
+      <div id="wrap-sn-double" class="hidden">
+        <div class="sn-input-wrapper">
+          <input type="text" id="sn-bad" placeholder="불량 S/N" oninput="checkEquipment()">
+          <button class="scan-btn" onclick="startScanner('sn-bad')">📷 스캔</button>
+        </div>
+        <div class="sn-input-wrapper">
+          <input type="text" id="sn-new" placeholder="교체 S/N" oninput="checkEquipment()">
+          <button class="scan-btn" onclick="startScanner('sn-new')">📷 스캔</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="wrap-tk862" class="input-group hidden">
+      <label>TK862 상세 종류</label>
+      <select id="tk862-type" onchange="updatePreview()">
+        <option value="BTP">BTP</option>
+        <option value="BPP/싱글">BPP/싱글</option>
+        <option value="BPP/멀티">BPP/멀티</option>
+      </select>
+    </div>
+
+    <div class="input-group">
+      <label>내용</label>
+      <input type="text" id="content" placeholder="작업 내용 수기 입력" oninput="updatePreview()">
+    </div>
+
+    <div class="input-group">
+      <label>기타 (재고 및 추가 내용)</label>
+      <div id="wrap-stock" class="stock-group hidden">
+        <select id="stock-location" onchange="updatePreview()"></select>
+        <input type="number" id="stock-qty" placeholder="수량" oninput="updatePreview()">
+        <span style="line-height: 40px; color:#555;">개/대</span>
+      </div>
+      <input type="text" id="misc-text" placeholder="추가 내용 수기 입력" oninput="updatePreview()">
+    </div>
+
+    <div class="input-group">
+      <label>카카오톡 양식 미리보기</label>
+      <textarea id="preview" rows="10" readonly style="background-color: #f8f9fa; font-family: monospace;"></textarea>
+    </div>
+    
+    <div class="btn-group">
+      <button class="kakao" onclick="copyToClipboard()">💬 카톡 복사</button>
+      <button class="sheets" onclick="saveToGoogleSheets()">📊 시트 저장</button>
+    </div>
+  </div>
+
+  <script>
+    // [PWA 1] 서비스 워커 등록 (앱 설치를 위한 필수 조건)
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js').then(reg => {
+          console.log('Service Worker 등록 성공:', reg.scope);
+        }).catch(err => {
+          console.log('Service Worker 등록 실패:', err);
+        });
+      });
+    }
+
+    // [PWA 2] 설치 알림창(Banner) 관리 로직
+    let deferredPrompt;
+    const installBanner = document.getElementById('install-banner');
+    const installBtn = document.getElementById('install-btn');
+
+    // iOS 감지
+    const isIos = () => {
+      const userAgent = window.navigator.userAgent.toLowerCase();
+      return /iphone|ipad|ipod/.test(userAgent);
+    };
+
+    // PWA가 이미 설치되어 독립 모드로 실행 중인지 확인
+    const isInStandaloneMode = () => ('standalone' in window.navigator) && (window.navigator.standalone);
+
+    window.addEventListener('beforeinstallprompt', (e) => {
+      // Chrome/Android 에서 기본 설치 팝업이 뜨는 것을 잠시 막고, 커스텀 배너 노출
+      e.preventDefault();
+      deferredPrompt = e;
+      installBanner.style.display = 'block';
+    });
+
+    installBtn.addEventListener('click', async () => {
+      if (deferredPrompt) {
+        // 안드로이드: 설치 팝업 띄우기
+        deferredPrompt.prompt();
+        const { outcome } = await deferredPrompt.userChoice;
+        if (outcome === 'accepted') {
+          installBanner.style.display = 'none';
+        }
+        deferredPrompt = null;
+      } else if (isIos()) {
+        // 아이폰(iOS) 안내
+        alert('아이폰(사파리)은 화면 하단의 [공유] 아이콘을 누르고 [홈 화면에 추가]를 선택해주세요!');
+      }
+    });
+
+    // iOS이고 설치 안 된 상태면 배너 노출
+    if (isIos() && !isInStandaloneMode()) {
+      installBanner.style.display = 'block';
+      installBtn.innerText = '설치 방법 보기';
+    }
+
+
+    /* =========================================================
+       아래부터는 기존 V2 앱 로직과 완전히 동일합니다.
+       ========================================================= */
+    const GOOGLE_APP_SCRIPT_URL = '여기에_웹앱_URL을_입력하세요'; 
+    let currentTerminal = "T1";
+    let currentJob = "";
+    let systemName = "AIRCUS"; 
+    let equipmentName = "직접 입력 필요";
+    
+    const stockLocations = {
+      "T1": ["T1 전산실", "T1 1756창고", "T1 2818창고"],
+      "T2": ["T2 G창고", "T2 인증센터 창고"]
+    };
+
+    let html5QrcodeScanner;
+    let targetInputId = "";
+
+    function openForm(jobType) {
+      currentJob = jobType;
+      currentTerminal = document.getElementById('terminal').value;
+      
+      document.getElementById('menu-screen').classList.remove('active');
+      document.getElementById('form-screen').classList.add('active');
+      document.getElementById('form-title').innerText = `[${currentTerminal} ${currentJob}]`;
+
+      resetForm();
+      setStockLocations();
+      toggleFieldsByJob();
+      updatePreview();
+    }
+
+    function goBack() {
+      document.getElementById('form-screen').classList.remove('active');
+      document.getElementById('menu-screen').classList.add('active');
+      stopScanner();
+    }
+
+    function toggleFieldsByJob() {
+      const isReplace = (currentJob === '장비 교체');
+      const isDispatch = (currentJob === '장비 수리 반출');
+
+      document.getElementById('wrap-location').classList.toggle('hidden', !isReplace);
+      document.getElementById('wrap-sn-single').classList.toggle('hidden', isReplace);
+      document.getElementById('wrap-sn-double').classList.toggle('hidden', !isReplace);
+      document.getElementById('wrap-stock').classList.toggle('hidden', isDispatch);
+    }
+
+    function setStockLocations() {
+      const select = document.getElementById('stock-location');
+      select.innerHTML = '<option value="">창고 선택 (선택 안함)</option>';
+      stockLocations[currentTerminal].forEach(loc => {
+        select.innerHTML += `<option value="${loc}">${loc}</option>`;
+      });
+    }
+
+    function checkEquipment() {
+      const sn1 = document.getElementById('sn-single').value.toUpperCase();
+      const sn2 = document.getElementById('sn-bad').value.toUpperCase();
+      const sn3 = document.getElementById('sn-new').value.toUpperCase();
+      const allSN = sn1 + sn2 + sn3;
+      const tkWrap = document.getElementById('wrap-tk862');
+
+      if (allSN.includes('MEC')) {
+        systemName = "AIRCUS";
+        tkWrap.classList.remove('hidden');
+        const tkType = document.getElementById('tk862-type').value;
+        equipmentName = `TK862 (${tkType})`; 
+      } else if (allSN.includes('X4R')) {
+        systemName = "AIRCUS";
+        equipmentName = "LQ-590H II(DCP)";
+        tkWrap.classList.add('hidden');
+      } else {
+        systemName = "AIRCUS";
+        equipmentName = "";
+        tkWrap.classList.add('hidden');
+      }
+      updatePreview();
+    }
+
+    function updatePreview() {
+      const location = document.getElementById('location').value;
+      const content = document.getElementById('content').value;
+      const stockLoc = document.getElementById('stock-location').value;
+      const stockQty = document.getElementById('stock-qty').value;
+      const miscText = document.getElementById('misc-text').value;
+      
+      const snSingle = document.getElementById('sn-single').value;
+      const snBad = document.getElementById('sn-bad').value;
+      const snNew = document.getElementById('sn-new').value;
+
+      if (!document.getElementById('wrap-tk862').classList.contains('hidden')) {
+         const tkType = document.getElementById('tk862-type').value;
+         equipmentName = `TK862 (${tkType})`;
+      }
+
+      const now = new Date();
+      const dateStr = `${String(now.getMonth() + 1).padStart(2, '0')}/${String(now.getDate()).padStart(2, '0')}`;
+
+      let finalMisc = [];
+      if (stockLoc || stockQty) {
+        finalMisc.push(`${stockLoc} 재고 ${stockQty || 0}개(대)`.trim());
+      }
+      if (miscText) finalMisc.push(miscText);
+      const miscString = finalMisc.join(' / ');
+
+      let text = `[${currentTerminal} ${currentJob}]\n`;
+      text += `1. 일시: ${dateStr}\n`;
+      text += `2. 구분: ${systemName}\n`;
+      text += `3. 장비: ${equipmentName}\n`;
+      
+      if (currentJob === '장비 수리 입고') {
+        text += `4. S/N 및 내용\n - ${snSingle}\n : ${content}\n`;
+        text += `5. 기타: ${miscString}`;
+      } else if (currentJob === '장비 수리완료' || currentJob === '장비 수리 반출') {
+        text += `4. S/N: ${snSingle}\n5. 내용: ${content}\n6. 기타: ${miscString}`;
+      } else if (currentJob === '장비 교체') {
+        text += `4. 대상: ${location}\n`;
+        text += `5. S/N:\n - 불량: ${snBad}\n - 교체: ${snNew}\n`;
+        text += `6. 내용: ${content}\n7. 기타: ${miscString}`;
+      }
+      document.getElementById('preview').value = text;
+    }
+
+    function startScanner(inputId) {
+      targetInputId = inputId;
+      document.getElementById('reader').style.display = 'block';
+      document.getElementById('stopBtn').style.display = 'block';
+
+      html5QrcodeScanner = new Html5Qrcode("reader");
+      html5QrcodeScanner.start(
+        { facingMode: "environment" },
+        { fps: 10, qrbox: { width: 250, height: 100 } },
+        (decodedText) => {
+          document.getElementById(targetInputId).value = decodedText;
+          checkEquipment(); 
+          stopScanner();
+          if(typeof navigator.vibrate === "function") navigator.vibrate(200); 
+        },
+        (errorMessage) => { }
+      ).catch((err) => {
+        alert("카메라 권한을 허용해주세요!");
+        stopScanner();
+      });
+    }
+
+    function stopScanner() {
+      if (html5QrcodeScanner) {
+        html5QrcodeScanner.stop().then(() => {
+          html5QrcodeScanner.clear();
+          document.getElementById('reader').style.display = 'none';
+          document.getElementById('stopBtn').style.display = 'none';
+        });
+      }
+    }
+
+    function copyToClipboard() {
+      const text = document.getElementById('preview').value;
+      navigator.clipboard.writeText(text).then(() => {
+        alert("카카오톡 양식이 복사되었습니다!");
+      }).catch(err => {
+        const textArea = document.getElementById('preview');
+        textArea.select();
+        document.execCommand('copy');
+        alert("카카오톡 양식이 복사되었습니다!");
+      });
+    }
+
+    function resetForm() {
+      document.getElementById('location').value = '';
+      document.getElementById('sn-single').value = '';
+      document.getElementById('sn-bad').value = '';
+      document.getElementById('sn-new').value = '';
+      document.getElementById('content').value = '';
+      document.getElementById('stock-qty').value = '';
+      document.getElementById('misc-text').value = '';
+      document.getElementById('tk862-type').value = 'BTP';
+      document.getElementById('wrap-tk862').classList.add('hidden');
+    }
+
+    function saveToGoogleSheets() {
+      if (GOOGLE_APP_SCRIPT_URL === '여기에_웹앱_URL을_입력하세요') {
+        alert('구글 웹앱 URL을 입력해주세요.'); return;
+      }
+      alert("이 기능은 구글 시트 구조에 맞춰 JSON을 전송하도록 설정해야 작동합니다.");
+    }
+  </script>
+</body>
+</html>
