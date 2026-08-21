@@ -1,7 +1,7 @@
 {
   "name": "인천공항 자재 스캐너",
   "short_name": "자재스캐너",
-  "start_url": "./index.html",
+  "start_url": "/",
   "display": "standalone",
   "background_color": "#f4f5f7",
   "theme_color": "#007bff",
