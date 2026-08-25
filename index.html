@@ -9,10 +9,13 @@
   <meta name="theme-color" content="#007bff">
   <link rel="apple-touch-icon" href="icon-192.png">
 
-  <!-- 바코드 인식 라이브러리 -->
+  <!-- 기존 라이브러리 -->
   <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
-  <!-- OCR (글자 인식) 라이브러리 -->
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+  
+  <!-- ★ 새로 추가된 이미지 자르기(Crop) 라이브러리 ★ -->
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.css" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.js"></script>
 
   <style>
     body { font-family: 'Malgun Gothic', sans-serif; padding: 15px; max-width: 500px; margin: auto; background-color: #f4f5f7; }
@@ -57,6 +60,16 @@
     
     #reader { width: 100%; background: #000; margin-bottom: 15px; border-radius: 8px; overflow: hidden; display: none; }
     #stopBtn { background-color: #dc3545; color: white; width: 100%; padding: 12px; border: none; border-radius: 6px; font-weight: bold; margin-bottom: 15px; cursor: pointer; display: none; }
+    
+    /* ★ 이미지 자르기 모달창 UI ★ */
+    #crop-modal { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.95); z-index: 9999; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+    .crop-container { width: 90%; height: 60vh; background: #000; display: flex; align-items: center; justify-content: center; }
+    .crop-container img { max-width: 100%; max-height: 100%; display: block; }
+    .crop-actions { display: flex; gap: 10px; margin-top: 20px; width: 90%; }
+    .crop-actions button { flex: 1; padding: 15px; font-size: 16px; font-weight: bold; border: none; border-radius: 8px; cursor: pointer; color: white; }
+    .btn-crop-cancel { background-color: #6c757d; }
+    .btn-crop-confirm { background-color: #28a745; }
+
     .hidden { display: none !important; }
   </style>
 </head>
@@ -65,12 +78,7 @@
   <!-- ==================== 메인 메뉴 화면 ==================== -->
   <div id="menu-screen" class="active">
     <h2>자재 스캐너</h2>
-
-    <div id="install-banner">
-      📱 바탕화면에 앱을 설치해 보세요!
-      <button id="install-btn">앱 설치하기</button>
-    </div>
-
+    <div id="install-banner">📱 바탕화면에 앱을 설치해 보세요!<button id="install-btn">앱 설치하기</button></div>
     <select id="terminal" class="terminal-select">
       <option value="T1">Terminal 1 (T1)</option>
       <option value="T2">Terminal 2 (T2)</option>
@@ -80,6 +88,18 @@
       <button class="menu-btn" onclick="openForm('장비 수리완료')">✅ 장비 수리 완료</button>
       <button class="menu-btn" onclick="openForm('장비 수리 입고')">📥 장비 수리 입고</button>
       <button class="menu-btn" onclick="openForm('장비 수리 반출')">📤 장비 수리 반출</button>
+    </div>
+  </div>
+
+  <!-- ==================== 이미지 자르기(Crop) 모달창 ==================== -->
+  <div id="crop-modal" class="hidden">
+    <h3 style="color:white; margin-top:0;">인식할 부분을 지정해 주세요</h3>
+    <div class="crop-container">
+      <img id="crop-image" src="">
+    </div>
+    <div class="crop-actions">
+      <button class="btn-crop-cancel" onclick="cancelCrop()">취소</button>
+      <button class="btn-crop-confirm" onclick="processCrop()">이 부분만 읽기</button>
     </div>
   </div>
 
@@ -102,14 +122,11 @@
       <input type="text" id="location" placeholder="예: CK E07, GT 등 선택 또는 입력" oninput="updatePreview()">
     </div>
 
-    <!-- 숨겨진 파일 선택기 (앨범 스캔 및 OCR 용) -->
+    <!-- 숨겨진 파일 선택기 -->
     <input type="file" id="file-upload" class="hidden" accept="image/*">
 
-    <!-- S/N 입력 영역 -->
     <div class="input-group">
       <label id="sn-label">S/N (시리얼 번호)</label>
-      
-      <!-- 싱글 폼 -->
       <div id="wrap-sn-single" class="sn-input-wrapper">
         <input type="text" id="sn-single" placeholder="바코드 스캔 또는 입력" oninput="checkEquipment()">
         <div class="scan-btn-group">
@@ -118,8 +135,6 @@
           <button class="scan-btn btn-ocr" onclick="triggerFileUpload('sn-single', 'ocr')">🔤 글자인식</button>
         </div>
       </div>
-      
-      <!-- 더블 폼 (교체용) -->
       <div id="wrap-sn-double" class="hidden">
         <div class="sn-input-wrapper">
           <input type="text" id="sn-bad" placeholder="불량 S/N" oninput="checkEquipment()">
@@ -140,7 +155,6 @@
       </div>
     </div>
 
-    <!-- TK862 상세 분류 -->
     <div id="wrap-tk862" class="input-group hidden">
       <label>TK862 상세 종류</label>
       <select id="tk862-type" onchange="updatePreview()">
@@ -150,13 +164,11 @@
       </select>
     </div>
 
-    <!-- 내용 -->
     <div class="input-group">
       <label>내용</label>
       <input type="text" id="content" placeholder="작업 내용 수기 입력" oninput="updatePreview()">
     </div>
 
-    <!-- 기타 및 재고 -->
     <div class="input-group">
       <label>기타 (재고 및 추가 내용)</label>
       <div id="wrap-stock" class="stock-group hidden">
@@ -180,29 +192,8 @@
 
   <script>
     if ('serviceWorker' in navigator) {
-      window.addEventListener('load', () => {
-        navigator.serviceWorker.register('./sw.js').catch(err => console.log(err));
-      });
+      window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(console.log));
     }
-
-    let deferredPrompt;
-    const installBanner = document.getElementById('install-banner');
-    const installBtn = document.getElementById('install-btn');
-
-    window.addEventListener('beforeinstallprompt', (e) => {
-      e.preventDefault();
-      deferredPrompt = e;
-      installBanner.style.display = 'block';
-    });
-
-    installBtn.addEventListener('click', async () => {
-      if (deferredPrompt) {
-        deferredPrompt.prompt();
-        const { outcome } = await deferredPrompt.userChoice;
-        if (outcome === 'accepted') installBanner.style.display = 'none';
-        deferredPrompt = null;
-      }
-    });
 
     let currentTerminal = "T1";
     let currentJob = "";
@@ -216,16 +207,15 @@
 
     let html5QrcodeScanner;
     let targetInputId = "";
-    let currentUploadMode = ""; // 'barcode' or 'ocr'
+    let currentUploadMode = ""; 
+    let cropper = null; // 크로퍼 객체
 
     function openForm(jobType) {
       currentJob = jobType;
       currentTerminal = document.getElementById('terminal').value;
-      
       document.getElementById('menu-screen').classList.remove('active');
       document.getElementById('form-screen').classList.add('active');
       document.getElementById('form-title').innerText = `[${currentTerminal} ${currentJob}]`;
-
       resetForm();
       setStockLocations();
       toggleFieldsByJob();
@@ -241,7 +231,6 @@
     function toggleFieldsByJob() {
       const isReplace = (currentJob === '장비 교체');
       const isDispatch = (currentJob === '장비 수리 반출');
-
       document.getElementById('wrap-location').classList.toggle('hidden', !isReplace);
       document.getElementById('wrap-sn-single').classList.toggle('hidden', isReplace);
       document.getElementById('wrap-sn-double').classList.toggle('hidden', !isReplace);
@@ -251,17 +240,12 @@
     function setStockLocations() {
       const select = document.getElementById('stock-location');
       select.innerHTML = '<option value="">창고 선택 (선택 안함)</option>';
-      stockLocations[currentTerminal].forEach(loc => {
-        select.innerHTML += `<option value="${loc}">${loc}</option>`;
-      });
+      stockLocations[currentTerminal].forEach(loc => select.innerHTML += `<option value="${loc}">${loc}</option>`);
     }
 
     function selectTarget(val) {
       document.getElementById('location').value = val;
-      document.querySelectorAll('.target-btn').forEach(btn => {
-        if(btn.innerText === val) btn.classList.add('selected');
-        else btn.classList.remove('selected');
-      });
+      document.querySelectorAll('.target-btn').forEach(btn => btn.classList.toggle('selected', btn.innerText === val));
       updatePreview();
     }
 
@@ -273,23 +257,19 @@
       
       const tkWrap = document.getElementById('wrap-tk862');
       const tkTargetBtns = document.getElementById('tk862-target-buttons');
-      const locationInput = document.getElementById('location');
 
       if (allSN.includes('MEC') || allSN.includes('RGI')) {
         systemName = "AIRCUS";
         tkWrap.classList.remove('hidden'); 
-        const tkType = document.getElementById('tk862-type').value;
-        equipmentName = `TK862 (${tkType})`; 
+        equipmentName = `TK862 (${document.getElementById('tk862-type').value})`; 
         if (currentJob === '장비 교체') tkTargetBtns.classList.remove('hidden');
-      } 
-      else if (allSN.includes('X4R')) {
+      } else if (allSN.includes('X4R')) {
         systemName = "AIRCUS";
         equipmentName = "LQ-590H II(DCP)";
         tkWrap.classList.add('hidden');
         tkTargetBtns.classList.add('hidden');
-        if (currentJob === '장비 교체') locationInput.value = "GT";
-      } 
-      else {
+        if (currentJob === '장비 교체') document.getElementById('location').value = "GT";
+      } else {
         systemName = "AIRCUS";
         equipmentName = "";
         tkWrap.classList.add('hidden');
@@ -310,8 +290,7 @@
       const snNew = document.getElementById('sn-new').value;
 
       if (!document.getElementById('wrap-tk862').classList.contains('hidden')) {
-         const tkType = document.getElementById('tk862-type').value;
-         equipmentName = `TK862 (${tkType})`;
+         equipmentName = `TK862 (${document.getElementById('tk862-type').value})`;
       }
 
       const now = new Date();
@@ -322,45 +301,30 @@
       if (miscText) finalMisc.push(miscText);
       const miscString = finalMisc.join(' / ');
 
-      let text = `[${currentTerminal} ${currentJob}]\n`;
-      text += `1. 일시: ${dateStr}\n`;
-      text += `2. 구분: ${systemName}\n`;
-      text += `3. 장비: ${equipmentName}\n`;
+      let text = `[${currentTerminal} ${currentJob}]\n1. 일시: ${dateStr}\n2. 구분: ${systemName}\n3. 장비: ${equipmentName}\n`;
       
-      if (currentJob === '장비 수리 입고') {
-        text += `4. S/N 및 내용\n - ${snSingle}\n : ${content}\n`;
-        text += `5. 기타: ${miscString}`;
-      } else if (currentJob === '장비 수리완료' || currentJob === '장비 수리 반출') {
-        text += `4. S/N: ${snSingle}\n5. 내용: ${content}\n6. 기타: ${miscString}`;
-      } else if (currentJob === '장비 교체') {
-        text += `4. 대상: ${location}\n`;
-        text += `5. S/N:\n - 불량: ${snBad}\n - 교체: ${snNew}\n`;
-        text += `6. 내용: ${content}\n7. 기타: ${miscString}`;
-      }
+      if (currentJob === '장비 수리 입고') text += `4. S/N 및 내용\n - ${snSingle}\n : ${content}\n5. 기타: ${miscString}`;
+      else if (currentJob === '장비 수리완료' || currentJob === '장비 수리 반출') text += `4. S/N: ${snSingle}\n5. 내용: ${content}\n6. 기타: ${miscString}`;
+      else if (currentJob === '장비 교체') text += `4. 대상: ${location}\n5. S/N:\n - 불량: ${snBad}\n - 교체: ${snNew}\n6. 내용: ${content}\n7. 기타: ${miscString}`;
+      
       document.getElementById('preview').value = text;
     }
 
-    // [기능 1] 라이브 카메라 스캔
+    // [기존 카메라]
     function startScanner(inputId) {
       targetInputId = inputId;
       document.getElementById('reader').style.display = 'block';
       document.getElementById('stopBtn').style.display = 'block';
-
       html5QrcodeScanner = new Html5Qrcode("reader");
       html5QrcodeScanner.start(
-        { facingMode: "environment" },
-        { fps: 10, qrbox: { width: 250, height: 100 } },
+        { facingMode: "environment" }, { fps: 10, qrbox: { width: 250, height: 100 } },
         (decodedText) => {
           document.getElementById(targetInputId).value = decodedText;
           checkEquipment(); 
           stopScanner();
           if(typeof navigator.vibrate === "function") navigator.vibrate(200); 
-        },
-        (errorMessage) => { }
-      ).catch((err) => {
-        alert("카메라 권한을 허용해주세요!");
-        stopScanner();
-      });
+        }, (err) => { }
+      ).catch(err => { alert("카메라 권한을 허용해주세요!"); stopScanner(); });
     }
 
     function stopScanner() {
@@ -373,63 +337,99 @@
       }
     }
 
-    // [기능 2 & 3 공통] 파일 업로드 트리거
+    // ★ [기능 2 & 3] 앨범/OCR 버튼 클릭 시 (Cropper.js 실행) ★
     function triggerFileUpload(inputId, mode) {
       targetInputId = inputId;
       currentUploadMode = mode;
       document.getElementById('file-upload').click();
     }
 
-    // [기능 2 & 3] 파일 업로드 시 처리 (바코드 or OCR)
     document.getElementById('file-upload').addEventListener('change', function(e) {
       if (e.target.files.length == 0) return;
+      
       const file = e.target.files[0];
+      const reader = new FileReader();
+      
+      // 사진을 읽어서 크롭 화면에 띄우기
+      reader.onload = function(event) {
+        document.getElementById('crop-image').src = event.target.result;
+        document.getElementById('crop-modal').classList.remove('hidden');
+        
+        // 기존 크로퍼가 있다면 지우고 새로 생성
+        if (cropper) cropper.destroy();
+        cropper = new Cropper(document.getElementById('crop-image'), {
+          viewMode: 1, // 화면 밖으로 벗어나지 않게
+          dragMode: 'crop',
+          autoCropArea: 0.8, // 처음 보여지는 크롭 박스 크기
+          restore: false,
+          guides: true,
+          center: true,
+          highlight: false,
+          cropBoxMovable: true,
+          cropBoxResizable: true,
+          toggleDragModeOnDblclick: false,
+        });
+      };
+      reader.readAsDataURL(file);
+      e.target.value = ""; // 파일 선택 초기화
+    });
+
+    // 영역 지정 취소
+    function cancelCrop() {
+      document.getElementById('crop-modal').classList.add('hidden');
+      if(cropper) cropper.destroy();
+    }
+
+    // 영역 지정 완료 및 읽기 시작
+    function processCrop() {
+      if (!cropper) return;
+      
+      // 잘라낸 영역을 캔버스로 추출
+      const canvas = cropper.getCroppedCanvas();
+      document.getElementById('crop-modal').classList.add('hidden');
+      cropper.destroy();
+
       const targetInput = document.getElementById(targetInputId);
 
-      if (currentUploadMode === 'barcode') {
-        // [기능 2] 앨범 바코드 스캔
-        const tempQrCode = new Html5Qrcode("reader");
-        tempQrCode.scanFile(file, true)
-          .then(decodedText => {
-            targetInput.value = decodedText;
-            checkEquipment();
-            alert("바코드 인식 성공!");
-          })
-          .catch(err => {
-            alert("사진에서 바코드를 찾을 수 없습니다. 선명한 사진인지 확인해주세요.");
-          });
-      } 
-      else if (currentUploadMode === 'ocr') {
-        // [기능 3] 글자 인식 (OCR)
-        targetInput.value = "글자 추출 중... (약 3~5초 소요)";
-        
-        Tesseract.recognize(file, 'eng', { logger: m => console.log(m) })
-          .then(({ data: { text } }) => {
-            // 모든 공백과 줄바꿈 제거 후 대문자로 변환
-            const cleanText = text.replace(/\s+/g, '').toUpperCase();
-            
-            // 시리얼 번호 패턴(MEC, X4R, RGI)이 있는지 정규식으로 검사
-            const regex = /(MEC[A-Z0-9]+|X4R[A-Z0-9]+|RGI[A-Z0-9]+)/;
-            const match = cleanText.match(regex);
+      // 추출된 캔버스를 이미지 파일로 변환하여 처리
+      canvas.toBlob(function(blob) {
+        if (currentUploadMode === 'barcode') {
+          // 바코드 읽기
+          const file = new File([blob], "cropped.jpg", { type: "image/jpeg" });
+          const tempQrCode = new Html5Qrcode("reader"); // 백그라운드용 생성
+          tempQrCode.scanFile(file, true)
+            .then(decodedText => {
+              targetInput.value = decodedText;
+              checkEquipment();
+              alert("바코드 인식 성공!");
+            })
+            .catch(err => {
+              alert("지정한 영역에서 바코드를 찾을 수 없습니다. 바코드가 꽉 차게 다시 지정해보세요.");
+            });
+        } 
+        else if (currentUploadMode === 'ocr') {
+          // 글자 읽기 (Tesseract.js는 캔버스를 직접 인식 가능)
+          targetInput.value = "글자 추출 중... (잠시만 기다려주세요)";
+          
+          Tesseract.recognize(canvas, 'eng')
+            .then(({ data: { text } }) => {
+              const cleanText = text.replace(/\s+/g, '').toUpperCase();
+              const regex = /(MEC[A-Z0-9]+|X4R[A-Z0-9]+|RGI[A-Z0-9]+)/;
+              const match = cleanText.match(regex);
 
-            if (match) {
-              // 패턴이 발견되면 해당 시리얼 번호만 쏙 뽑아냄
-              targetInput.value = match[0];
-            } else {
-              // 패턴이 없으면 인식된 글자 전체를 일단 넣음 (사용자가 수정하도록)
-              targetInput.value = text.trim();
-            }
-            checkEquipment();
-            alert("글자 인식이 완료되었습니다. 혹시 오타(O와 0 등)가 없는지 꼭 확인해 주세요!");
-          })
-          .catch(err => {
-            targetInput.value = "";
-            alert("글자 인식에 실패했습니다.");
-          });
-      }
-      // 파일 선택 초기화 (같은 파일 다시 선택 가능하도록)
-      e.target.value = "";
-    });
+              if (match) targetInput.value = match[0];
+              else targetInput.value = text.trim();
+              
+              checkEquipment();
+              alert("글자 인식이 완료되었습니다.");
+            })
+            .catch(err => {
+              targetInput.value = "";
+              alert("글자 인식에 실패했습니다.");
+            });
+        }
+      }, 'image/jpeg');
+    }
 
     function copyToClipboard() {
       const text = document.getElementById('preview').value;
@@ -457,9 +457,7 @@
       document.querySelectorAll('.target-btn').forEach(b => b.classList.remove('selected'));
     }
 
-    function saveToGoogleSheets() {
-      alert("구글 시트 저장 기능은 스크립트 연동 후 작동합니다.");
-    }
+    function saveToGoogleSheets() { alert("구글 시트 저장 기능은 스크립트 연동 후 작동합니다."); }
   </script>
 </body>
 </html>
