@@ -128,16 +128,6 @@
     <div class="input-group" id="wrap-sn-main">
       <label id="sn-label">S/N (시리얼 번호)</label>
       
-      <!-- 싱글 폼 (입고, 반출용) -->
-      <div id="wrap-sn-single" class="sn-input-wrapper">
-        <input type="text" id="sn-single" placeholder="바코드 스캔 또는 입력" oninput="checkEquipment()">
-        <div class="scan-btn-group">
-          <button class="scan-btn btn-cam" onclick="startScanner('sn-single')">📷 카메라</button>
-          <button class="scan-btn btn-album" onclick="triggerFileUpload('sn-single', 'barcode')">🖼️ 앨범</button>
-          <button class="scan-btn btn-ocr" onclick="triggerFileUpload('sn-single', 'ocr')">🔤 글자인식</button>
-        </div>
-      </div>
-      
       <!-- 더블 폼 (교체용) -->
       <div id="wrap-sn-double" class="hidden">
         <div class="sn-input-wrapper">
@@ -159,13 +149,13 @@
       </div>
     </div>
 
-    <!-- 멀티 입력 폼 (수리 완료용) -->
+    <!-- 멀티 입력 폼 (수리완료, 입고, 반출 공통) -->
     <div id="wrap-multi-items" class="input-group hidden" style="background: transparent; box-shadow: none; padding: 0;">
       <div id="multi-items-container"></div>
       <button type="button" class="btn-add-item" onclick="addMultiItem()">➕ 장비 추가하기</button>
     </div>
 
-    <!-- 단일 내용 입력 (입고, 교체, 반출용) -->
+    <!-- 단일 내용 입력 (교체용으로만 사용됨) -->
     <div id="wrap-content-single" class="input-group">
       <label>내용</label>
       <input type="text" id="content" placeholder="작업 내용 수기 입력" oninput="updatePreview()">
@@ -249,11 +239,10 @@
     });
     if (isIos() && !isInStandaloneMode()) { installBanner.style.display = 'block'; installBtn.innerText = '설치 방법 보기'; }
 
-
     let currentTerminal = "T1", currentJob = "", systemName = "AIRCUS", equipmentName = "직접 입력 필요";
     const stockLocations = { "T1": ["T1 전산실", "T1 1756창고", "T1 2818창고"], "T2": ["T2 G창고", "T2 인증센터 창고"] };
     let html5QrcodeScanner, targetInputId = "", currentUploadMode = "", cropper = null;
-    let multiItemCount = 0; // 멀티 입력창 카운터
+    let multiItemCount = 0;
 
     function openForm(jobType) {
       currentJob = jobType;
@@ -273,22 +262,19 @@
       stopScanner();
     }
 
-    // 작업별 화면 구성 (멀티모드 토글 포함)
     function toggleFieldsByJob() {
       const isReplace = (currentJob === '장비 교체');
       const isDispatch = (currentJob === '장비 수리 반출');
-      const isMulti = (currentJob === '장비 수리완료'); // '장비 수리완료'에 멀티모드 활성화
+      // 수리완료, 입고, 반출 모두 멀티/싱글 하이브리드 모드 사용
+      const isMultiSupported = (currentJob === '장비 수리완료' || currentJob === '장비 수리 입고' || currentJob === '장비 수리 반출');
 
       document.getElementById('wrap-location').classList.toggle('hidden', !isReplace);
       
-      // 싱글/더블 S/N 숨김 처리
-      document.getElementById('wrap-sn-main').classList.toggle('hidden', isMulti);
-      document.getElementById('wrap-sn-single').classList.toggle('hidden', isReplace || isMulti);
+      document.getElementById('wrap-sn-main').classList.toggle('hidden', isMultiSupported);
       document.getElementById('wrap-sn-double').classList.toggle('hidden', !isReplace);
       
-      // 멀티 입력창 표시 및 단일 내용창 숨김
-      document.getElementById('wrap-multi-items').classList.toggle('hidden', !isMulti);
-      document.getElementById('wrap-content-single').classList.toggle('hidden', isMulti);
+      document.getElementById('wrap-multi-items').classList.toggle('hidden', !isMultiSupported);
+      document.getElementById('wrap-content-single').classList.toggle('hidden', isMultiSupported);
       
       document.getElementById('wrap-stock').classList.toggle('hidden', isDispatch);
     }
@@ -313,7 +299,6 @@
       updatePreview();
     }
 
-    // 멀티 입력칸 추가 기능
     function addMultiItem() {
       multiItemCount++;
       const id = multiItemCount;
@@ -337,20 +322,28 @@
         <input type="text" id="content-multi-${id}" class="content-multi-input" placeholder="작업 내용 (예: 헤드 교체)" oninput="updatePreview()">
       `;
       container.appendChild(div);
+      updateRemoveButtons();
       updatePreview();
     }
 
-    // 멀티 입력칸 삭제 기능
     function removeMultiItem(id) {
       const item = document.getElementById(`multi-item-${id}`);
       if(item) item.remove();
+      updateRemoveButtons();
       checkEquipment();
     }
 
+    // 아이템 갯수에 따라 삭제 버튼 숨기기/보이기
+    function updateRemoveButtons() {
+      const items = document.querySelectorAll('.multi-item');
+      items.forEach(item => {
+        const btn = item.querySelector('.btn-remove-item');
+        if (btn) btn.style.display = (items.length > 1) ? 'block' : 'none';
+      });
+    }
+
     function checkEquipment() {
-      // 1. 모든 S/N 값 수집 (싱글, 더블, 멀티)
-      let allSN = document.getElementById('sn-single').value.toUpperCase() + 
-                  document.getElementById('sn-bad').value.toUpperCase() + 
+      let allSN = document.getElementById('sn-bad').value.toUpperCase() + 
                   document.getElementById('sn-new').value.toUpperCase();
       
       document.querySelectorAll('.sn-multi-input').forEach(input => { allSN += input.value.toUpperCase(); });
@@ -361,16 +354,13 @@
       
       tkTargetBtns.classList.add('hidden'); pcWrap.classList.add('hidden'); tkWrap.classList.add('hidden');
 
-      // 2. PC 판별 (정확히 7자리 영문숫자 혼합이 하나라도 있으면 PC로 간주)
       let isPC = false;
       const regex7 = /^[A-Z0-9]{7}$/;
       
       if (currentJob === '장비 교체') {
         if (regex7.test(document.getElementById('sn-bad').value.toUpperCase()) || regex7.test(document.getElementById('sn-new').value.toUpperCase())) isPC = true;
-      } else if (currentJob === '장비 수리완료') {
-        document.querySelectorAll('.sn-multi-input').forEach(input => { if (regex7.test(input.value.toUpperCase())) isPC = true; });
       } else {
-        if (regex7.test(document.getElementById('sn-single').value.toUpperCase())) isPC = true;
+        document.querySelectorAll('.sn-multi-input').forEach(input => { if (regex7.test(input.value.toUpperCase())) isPC = true; });
       }
 
       if (isPC) {
@@ -384,13 +374,11 @@
         }
         checkPcSystem();
       } 
-      // 3. TK862 판별
       else if (allSN.includes('MEC') || allSN.includes('RGI')) {
         systemName = "AIRCUS"; tkWrap.classList.remove('hidden'); 
         equipmentName = `TK862 (${document.getElementById('tk862-type').value})`; 
         if (currentJob === '장비 교체') tkTargetBtns.classList.remove('hidden');
       } 
-      // 4. LQ-590H 판별
       else if (allSN.includes('X4R')) {
         systemName = "AIRCUS"; equipmentName = "LQ-590H II(DCP)";
         if (currentJob === '장비 교체' && !document.getElementById('location').value) document.getElementById('location').value = "GT ";
@@ -406,7 +394,7 @@
       const stockLoc = document.getElementById('stock-location').value;
       const stockQty = document.getElementById('stock-qty').value;
       const miscText = document.getElementById('misc-text').value;
-      const snSingle = document.getElementById('sn-single').value;
+      
       const snBad = document.getElementById('sn-bad').value;
       const snNew = document.getElementById('sn-new').value;
       const isPC = !document.getElementById('wrap-pc-options').classList.contains('hidden');
@@ -432,26 +420,34 @@
 
       let text = `[${currentTerminal} ${currentJob}]\n1. 일시: ${dateStr}\n2. 구분: ${systemName}\n3. 장비: ${equipmentName}\n`;
       
-      // ★ 작업별 양식 (수리완료 멀티입력 포함) ★
-      if (currentJob === '장비 수리완료') {
-        text += `4. S/N 및 내용 :\n`;
+      // ★ 싱글 / 멀티 양식 분기 처리 ★
+      if (currentJob === '장비 수리완료' || currentJob === '장비 수리 입고' || currentJob === '장비 수리 반출') {
         const pcModelAppender = isPC ? ` (DELL ${document.getElementById('pc-single-model').value})` : '';
-        
-        document.querySelectorAll('.multi-item').forEach(item => {
-          const sVal = item.querySelector('.sn-multi-input').value;
-          const cVal = item.querySelector('.content-multi-input').value;
-          if (sVal || cVal) {
-            // S/N(내용) 형식으로 병합
-            text += `- ${sVal}(${cVal})${pcModelAppender}\n`;
+        const multiItems = document.querySelectorAll('.multi-item');
+
+        if (multiItems.length > 1) {
+          // 장비가 2대 이상일 때 (다중 입력 모드)
+          text += `4. S/N 및 내용 :\n`;
+          multiItems.forEach(item => {
+            const sVal = item.querySelector('.sn-multi-input').value;
+            const cVal = item.querySelector('.content-multi-input').value;
+            if (sVal || cVal) {
+              text += `- ${sVal}(${cVal})${pcModelAppender}\n`;
+            }
+          });
+          text += `5. 기타: ${miscString}`;
+        } else {
+          // 장비가 1대일 때 (단일 입력 모드 유지)
+          const singleItem = multiItems[0];
+          const sVal = singleItem ? singleItem.querySelector('.sn-multi-input').value : '';
+          const cVal = singleItem ? singleItem.querySelector('.content-multi-input').value : '';
+
+          if (currentJob === '장비 수리 입고') {
+            text += `4. S/N 및 내용\n - ${sVal}${pcModelAppender}\n : ${cVal}\n5. 기타: ${miscString}`;
+          } else {
+            text += `4. S/N: ${sVal}${pcModelAppender}\n5. 내용: ${cVal}\n6. 기타: ${miscString}`;
           }
-        });
-        text += `5. 기타: ${miscString}`;
-      } 
-      else if (currentJob === '장비 수리 입고') {
-        text += `4. S/N 및 내용\n - ${snSingle}${isPC ? ` (DELL ${document.getElementById('pc-single-model').value})` : ''}\n : ${content}\n5. 기타: ${miscString}`;
-      } 
-      else if (currentJob === '장비 수리 반출') {
-        text += `4. S/N: ${snSingle}${isPC ? ` (DELL ${document.getElementById('pc-single-model').value})` : ''}\n5. 내용: ${content}\n6. 기타: ${miscString}`;
+        }
       } 
       else if (currentJob === '장비 교체') {
         text += `4. 대상: ${location}\n5. S/N:\n`;
@@ -467,7 +463,6 @@
       document.getElementById('preview').value = text;
     }
 
-    // 카메라, 사진, OCR 공통 로직
     function startScanner(inputId) {
       targetInputId = inputId; document.getElementById('reader').style.display = 'block'; document.getElementById('stopBtn').style.display = 'block';
       html5QrcodeScanner = new Html5Qrcode("reader");
@@ -527,7 +522,7 @@
 
     function resetForm() {
       document.getElementById('location').value = '';
-      document.getElementById('sn-single').value = ''; document.getElementById('sn-bad').value = ''; document.getElementById('sn-new').value = '';
+      document.getElementById('sn-bad').value = ''; document.getElementById('sn-new').value = '';
       document.getElementById('content').value = ''; document.getElementById('stock-qty').value = ''; document.getElementById('misc-text').value = '';
       
       document.getElementById('tk862-type').value = 'BTP';
@@ -536,7 +531,6 @@
       document.getElementById('tk862-target-buttons').classList.add('hidden');
       document.querySelectorAll('.target-btn').forEach(b => b.classList.remove('selected'));
       
-      // 멀티 입력창 초기화 (항상 1개는 띄워둠)
       document.getElementById('multi-items-container').innerHTML = '';
       multiItemCount = 0;
       addMultiItem();
